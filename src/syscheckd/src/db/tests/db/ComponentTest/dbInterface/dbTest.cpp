@@ -820,6 +820,8 @@ TEST_F(DBTestFixture, TestTeardownHookRefusalKeepsTheDatabaseUp)
     ASSERT_EQ(fim_db_get_count_file_entry(), 1);
 }
 
+// Windows stores every path as UTF-8 (encodeString), so only Unix keeps invalid bytes in the DB.
+#ifndef WIN32
 TEST_F(DBTestFixture, TestFimDBInvalidUtf8PathKeepsRawBytes)
 {
     const std::string invalidPath {"/tmp/b\xff"};
@@ -842,3 +844,4 @@ TEST_F(DBTestFixture, TestFimDBInvalidUtf8PathKeepsRawBytes)
     EXPECT_EQ(invalidPath, cJSON_GetStringValue(cJSON_GetObjectItem(cJSON_GetArrayItem(docs, 0), "path")));
     cJSON_Delete(docs);
 }
+#endif
