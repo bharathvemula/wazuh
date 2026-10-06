@@ -12,6 +12,7 @@
 #include "db.h"
 #include "cJSON.h"
 #include "cjsonSmartDeleter.hpp"
+#include "cjsonHelper.hpp"
 #include "commonDefs.h"
 #include "db.hpp"
 #include "dbFileItem.hpp"
@@ -591,8 +592,7 @@ cJSON* fim_db_get_every_element(const char* table_name, const char* row_filter)
         for (const auto& item : items)
         {
             // Convert nlohmann::json to cJSON for C compatibility
-            std::string json_str = item.dump();
-            cJSON* c_json = cJSON_Parse(json_str.c_str());
+            cJSON* c_json = Utils::toCJSON(item);
 
             if (c_json)
             {
@@ -751,9 +751,7 @@ cJSON* fim_db_get_documents_to_promote(char* table_name, int documents)
         // Convert each nlohmann::json to cJSON and add to array
         for (const auto& item : items)
         {
-            // Convert nlohmann::json to string, then parse as cJSON
-            std::string json_str = item.dump();
-            cJSON* c_json = cJSON_Parse(json_str.c_str());
+            cJSON* c_json = Utils::toCJSON(item);
 
             if (c_json)
             {
@@ -801,9 +799,7 @@ cJSON* fim_db_get_documents_to_demote(char* table_name, int documents)
         // Convert each nlohmann::json to cJSON and add to array
         for (const auto& item : items)
         {
-            // Convert nlohmann::json to string, then parse as cJSON
-            std::string json_str = item.dump();
-            cJSON* c_json = cJSON_Parse(json_str.c_str());
+            cJSON* c_json = Utils::toCJSON(item);
 
             if (c_json)
             {

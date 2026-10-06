@@ -1645,6 +1645,31 @@ void test_handle_all_paths_removed_no_sync_handle(void **state) {
 
 /* ---------------------------------- End DataClean Tests ---------------------------------- */
 
+void test_fim_print_json(void **state) {
+    (void) state;
+    cJSON *event = cJSON_CreateObject();
+    cJSON_AddStringToObject(event, "path", "/etc/caf\xc3\xa9");
+
+    char *msg = fim_print_json(event);
+    assert_string_equal(msg, "{\"path\":\"/etc/caf\xc3\xa9\"}");
+
+    os_free(msg);
+    cJSON_Delete(event);
+}
+
+void test_fim_print_json_invalid_utf8(void **state) {
+    (void) state;
+    cJSON *event = cJSON_CreateObject();
+    cJSON_AddStringToObject(event, "path", "/tmp/b\xff");
+    cJSON_AddStringToObject(event, "other", "/tmp/c\xe2\x82x");
+
+    char *msg = fim_print_json(event);
+    assert_string_equal(msg, "{\"path\":\"/tmp/b\xef\xbf\xbd\",\"other\":\"/tmp/c\xef\xbf\xbd\xef\xbf\xbdx\"}");
+
+    os_free(msg);
+    cJSON_Delete(event);
+}
+
 void test_persist_syscheck_msg_destroyed_sync_handle(void **state) {
     (void) state;
     AgentSyncProtocolHandle *original_handle = syscheck.sync_handle;
@@ -1714,6 +1739,8 @@ int main(void) {
         cmocka_unit_test(test_handle_all_paths_removed_no_data_in_db),
         cmocka_unit_test(test_handle_all_paths_removed_no_sync_handle),
         cmocka_unit_test(test_persist_syscheck_msg_destroyed_sync_handle),
+        cmocka_unit_test(test_fim_print_json),
+        cmocka_unit_test(test_fim_print_json_invalid_utf8),
 #ifndef TEST_WINAGENT
         cmocka_unit_test(test_fim_run_realtime_first_error),
         cmocka_unit_test(test_fim_run_realtime_first_timeout),

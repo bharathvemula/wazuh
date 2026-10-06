@@ -331,6 +331,14 @@ void realtime_sanitize_watch_map();
 void free_whodata_event(whodata_evt* w_evt);
 
 /**
+ * @brief Print a JSON message, replacing invalid UTF-8 (e.g. a file name) with U+FFFD
+ *
+ * @param json The message to print
+ * @return New string to be freed by the caller, or NULL on failure
+ */
+char *fim_print_json(const cJSON *json);
+
+/**
  * @brief Send a message related to syscheck change/addition/deletion
  *
  * @param msg The message to be sent

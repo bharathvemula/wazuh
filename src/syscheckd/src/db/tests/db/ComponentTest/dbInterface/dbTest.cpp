@@ -819,3 +819,26 @@ TEST_F(DBTestFixture, TestTeardownHookRefusalKeepsTheDatabaseUp)
     ASSERT_TRUE(g_teardownHookCalled);
     ASSERT_EQ(fim_db_get_count_file_entry(), 1);
 }
+
+TEST_F(DBTestFixture, TestFimDBInvalidUtf8PathKeepsRawBytes)
+{
+    const std::string invalidPath {"/tmp/b\xff"};
+    auto fileStatement = insertFileStatement;
+    fileStatement["path"] = invalidPath;
+    fileStatement["sync"] = 0;
+    const auto fileFIMTest {std::make_unique<FileItem>(fileStatement)};
+
+    ASSERT_EQ(fim_db_file_update(fileFIMTest->toFimEntry(), callback_data_added), FIMDB_OK);
+
+    cJSON* elements = fim_db_get_every_element(FIMDB_FILE_TABLE_NAME, NULL);
+    ASSERT_NE(nullptr, elements);
+    ASSERT_EQ(1, cJSON_GetArraySize(elements));
+    EXPECT_EQ(invalidPath, cJSON_GetStringValue(cJSON_GetObjectItem(cJSON_GetArrayItem(elements, 0), "path")));
+    cJSON_Delete(elements);
+
+    cJSON* docs = fim_db_get_documents_to_promote((char*)FIMDB_FILE_TABLE_NAME, 10);
+    ASSERT_NE(nullptr, docs);
+    ASSERT_EQ(1, cJSON_GetArraySize(docs));
+    EXPECT_EQ(invalidPath, cJSON_GetStringValue(cJSON_GetObjectItem(cJSON_GetArrayItem(docs, 0), "path")));
+    cJSON_Delete(docs);
+}

@@ -11,6 +11,7 @@
 
 #include "cJSON.h"
 #include "cjsonSmartDeleter.hpp"
+#include "cjsonHelper.hpp"
 #include "db.h"
 #include "db.hpp"
 #include "dbFileItem.hpp"
@@ -184,7 +185,7 @@ FIMDBErrorCode fim_db_get_path(const char* file_path, callback_context_t callbac
 
                     const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson
                     {
-                        cJSON_Parse(patchedJson.dump().c_str())};
+                        Utils::toCJSON(patchedJson)};
                     callback.callback_txn(ReturnTypeCallback::DELETED, spJson.get(), callback.context);
                 }
                 else
@@ -299,7 +300,7 @@ FIMDBErrorCode fim_db_file_update(fim_entry* data, callback_context_t callback)
 
                 const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson
                 {
-                    cJSON_Parse(patchedJson.dump().c_str())};
+                    Utils::toCJSON(patchedJson)};
                 callback.callback_txn(static_cast<ReturnTypeCallback>(resultType),
                                       spJson.get(),
                                       callback.context);

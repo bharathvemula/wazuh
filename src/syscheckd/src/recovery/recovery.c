@@ -242,7 +242,7 @@ bool fim_recovery_persist_table_and_resync(char* table_name, AgentSyncProtocolHa
         }
 #endif // WIN32
         if (stateful_event) {
-            char* stateful_event_str = cJSON_PrintUnformatted(stateful_event);
+            char* stateful_event_str = fim_print_json(stateful_event);
             if (stateful_event_str) {
                 // Validate stateful event before persisting for recovery
                 bool validation_passed = true;

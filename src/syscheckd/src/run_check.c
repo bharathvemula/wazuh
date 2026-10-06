@@ -531,9 +531,21 @@ STATIC void fim_send_msg(char mq, const char * location, const char * msg) {
     }
 }
 
+char *fim_print_json(const cJSON *json) {
+    char *msg = cJSON_PrintUnformatted(json);
+
+    if (msg != NULL && !w_utf8_valid(msg)) {
+        char *sanitized = w_utf8_filter(msg, true);
+        os_free(msg);
+        msg = sanitized;
+    }
+
+    return msg;
+}
+
 // Send a message related to syscheck change/addition
 void send_syscheck_msg(const cJSON *_msg) {
-    char *msg = cJSON_PrintUnformatted(_msg);
+    char *msg = fim_print_json(_msg);
 
     mdebug2(FIM_SEND, msg);
     fim_send_msg(SYSCHECK_MQ, SYSCHECK, msg);
@@ -555,7 +567,7 @@ void send_syscheck_msg(const cJSON *_msg) {
 // Persist a syscheck message
 void persist_syscheck_msg(const char *id, Operation_t operation, const char *index, const cJSON* _msg, uint64_t version) {
     if (syscheck.enable_synchronization) {
-        char* msg = cJSON_PrintUnformatted(_msg);
+        char* msg = fim_print_json(_msg);
 
         mdebug2(FIM_PERSIST, msg);
 
@@ -590,7 +602,7 @@ bool validate_and_persist_fim_event(
 
     // Only validate if synchronization is enabled and schema validator is initialized
     if (syscheck.enable_synchronization && schema_validator_is_initialized()) {
-        char* msg = cJSON_PrintUnformatted(stateful_event);
+        char* msg = fim_print_json(stateful_event);
         char* errorMessage = NULL;
 
         if (!schema_validator_validate(index, msg, &errorMessage)) {

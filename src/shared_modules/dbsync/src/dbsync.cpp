@@ -16,6 +16,7 @@
 #include "dbsync_implementation.h"
 #include "dbsyncPipelineFactory.h"
 #include "cjsonSmartDeleter.hpp"
+#include "cjsonHelper.hpp"
 #include "hashHelper.h"
 #include "stringHelper.h"
 
@@ -147,7 +148,7 @@ TXN_HANDLE dbsync_create_txn(const DBSYNC_HANDLE handle,
 
                     if (patchedJson.contains("old")) convert_inode(patchedJson["old"]);
 
-                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ cJSON_Parse(patchedJson.dump().c_str()) };
+                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ Utils::toCJSON(patchedJson) };
                     callback_data.callback(result, spJson.get(), callback_data.user_data);
                 }
             };
@@ -383,7 +384,7 @@ int dbsync_sync_row(const DBSYNC_HANDLE handle,
             {
                 [callback_data](ReturnTypeCallback result, const nlohmann::json & jsonResult)
                 {
-                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ cJSON_Parse(jsonResult.dump().c_str()) };
+                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ Utils::toCJSON(jsonResult) };
                     callback_data.callback(result, spJson.get(), callback_data.user_data);
                 }
             };
@@ -433,7 +434,7 @@ int dbsync_select_rows(const DBSYNC_HANDLE handle,
             {
                 [callback_data](ReturnTypeCallback result, const nlohmann::json & jsonResult)
                 {
-                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ cJSON_Parse(jsonResult.dump().c_str()) };
+                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ Utils::toCJSON(jsonResult) };
                     callback_data.callback(result, spJson.get(), callback_data.user_data);
                 }
             };
@@ -531,7 +532,7 @@ int dbsync_get_deleted_rows(const TXN_HANDLE  txn,
                         patchedJson["inode"] = std::to_string(inode);
                     }
 
-                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ cJSON_Parse(patchedJson.dump().c_str()) };
+                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ Utils::toCJSON(patchedJson) };
                     callback_data.callback(result, spJson.get(), callback_data.user_data);
                 }
             };
@@ -590,7 +591,7 @@ int dbsync_update_with_snapshot(const DBSYNC_HANDLE handle,
             };
             const std::unique_ptr<char, CJsonSmartFree> spJsonBytes{cJSON_PrintUnformatted(js_snapshot)};
             DBSyncImplementation::instance().updateSnapshotData(handle, nlohmann::json::parse(spJsonBytes.get()), callbackWrapper);
-            *js_result = cJSON_Parse(result.dump().c_str());
+            *js_result = Utils::toCJSON(result);
             retVal = 0;
         }
         catch (const nlohmann::detail::exception& ex)
@@ -640,7 +641,7 @@ int dbsync_update_with_snapshot_cb(const DBSYNC_HANDLE handle,
             {
                 [callback_data](ReturnTypeCallback result, const nlohmann::json & jsonResult)
                 {
-                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ cJSON_Parse(jsonResult.dump().c_str()) };
+                    const std::unique_ptr<cJSON, CJsonSmartDeleter> spJson{ Utils::toCJSON(jsonResult) };
                     callback_data.callback(result, spJson.get(), callback_data.user_data);
                 }
             };
