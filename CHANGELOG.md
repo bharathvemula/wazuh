@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 
 #### Fixed
 
+- Fixed syscollector probing network paths taken from user registry values on Windows. ([#40113](https://github.com/wazuh/wazuh/pull/40113))
 - Fixed one-byte buffer overflows in whodata, logcollector and FIM config parsing. ([#39705](https://github.com/wazuh/wazuh/pull/39705))
 - Fixed syscollector dropping process and port inventory on names with invalid UTF-8. ([#39956](https://github.com/wazuh/wazuh/pull/39956))
 - Fixed FIM crash on first scan when inotify cannot be initialized. ([#39707](https://github.com/wazuh/wazuh/pull/39707))
