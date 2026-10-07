@@ -2004,6 +2004,15 @@ void test_w_fopen_nofollow_fifo_rejected(void **state) {
     assert_true(S_ISFIFO(statbuf.st_mode));
 }
 
+void test_w_fopen_regular_fifo_rejected(void **state) {
+    char path[PATH_MAX + 1];
+
+    nofollow_path(path, "fifo");
+    assert_int_equal(mkfifo(path, 0640), 0);
+
+    assert_null(w_fopen_regular(path, "rb"));
+}
+
 void test_w_fopen_nofollow_directory_rejected(void **state) {
     char path[PATH_MAX + 1];
 
@@ -2687,6 +2696,7 @@ int main(void) {
         cmocka_unit_test_setup_teardown(test_w_fopen_nofollow_hard_link_rejected, setup_nofollow, teardown_nofollow),
         cmocka_unit_test_setup_teardown(test_w_fopen_nofollow_dangling_symlink_rejected, setup_nofollow, teardown_nofollow),
         cmocka_unit_test_setup_teardown(test_w_fopen_nofollow_fifo_rejected, setup_nofollow, teardown_nofollow),
+        cmocka_unit_test_setup_teardown(test_w_fopen_regular_fifo_rejected, setup_nofollow, teardown_nofollow),
         cmocka_unit_test_setup_teardown(test_w_fopen_nofollow_directory_rejected, setup_nofollow, teardown_nofollow),
         cmocka_unit_test_setup_teardown(test_w_fopen_nofollow_invalid_name, setup_nofollow, teardown_nofollow),
         cmocka_unit_test_setup_teardown(test_w_fopen_nofollow_invalid_mode, setup_nofollow, teardown_nofollow),

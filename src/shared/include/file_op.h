@@ -498,6 +498,15 @@ int w_stat(const char * pathname,
  */
 FILE * wfopen(const char * pathname, const char * mode);
 
+/**
+ * @brief Open a regular file for reading, without following symlinks or blocking on a FIFO.
+ *
+ * @param pathname Path of the file.
+ * @param mode Open mode ("r" or "rb").
+ * @return File pointer, or NULL if it cannot be opened or is not a regular file.
+ */
+FILE * w_fopen_regular(const char * pathname, const char * mode);
+
 
 /**
  * @brief Create or truncate a file inside a base directory for writing, without following symlinks.
