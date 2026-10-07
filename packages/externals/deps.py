@@ -8,6 +8,7 @@
     deps.py manifest --deps-version N [--python --built-against SET [--requirements PATH]]
                      [--inventory PATH] [--wazuh-commit SHA] [--workflow-run ID] [--files DIR]
     deps.py drift [--inventory PATH] [--manifest URL|PATH] [--python-manifest URL|PATH]
+    deps.py verify --set SET --manifest PATH [--mirror URL]
 
 `check` prints one `ERROR: <name>: <message>` line per problem to stderr and exits 1 if
 there is any, 0 otherwise. `flatten` prints the inventory as bash associative arrays
@@ -16,9 +17,11 @@ there is any, 0 otherwise. `flatten` prints the inventory as bash associative ar
 `manifest` prints the manifest.json of a published set (the external libraries, or with
 --python the embedded Python and its wheels), and `drift` compares the inventory with the
 manifests of the sets src/Makefile's DEPS_VERSION and PYTHON_DEPS_VERSION point at.
+`verify` checks a published set against its local manifest.json, file by file.
 """
 
 import argparse
+import concurrent.futures
 import difflib
 import hashlib
 import json
@@ -441,6 +444,35 @@ def seeds(doc, published, deps_version, patches_dir=PATCHES_DIR, overlays_dir=OV
     return result
 
 
+def verify(set_name, local_manifest, mirror=MIRROR):
+    """Differences between a published set and its local manifest.json (bytes and every file's sha256)."""
+    base = f"{mirror}/{set_name}"
+
+    def fetch(path):
+        try:
+            with urllib.request.urlopen(f"{base}/{path}", timeout=120) as response:
+                return response.read()
+        except OSError as exc:
+            return exc
+
+    expected = Path(local_manifest).read_bytes()
+    published = fetch("manifest.json")
+    errors = []
+    if isinstance(published, Exception):
+        errors.append(f"<manifest>: {base}/manifest.json: {published}")
+    elif published != expected:
+        errors.append(f"<manifest>: {base}/manifest.json differs from {local_manifest}")
+    files = json.loads(expected)["files"]
+    with concurrent.futures.ThreadPoolExecutor(8) as pool:
+        got = dict(zip(files, pool.map(fetch, files)))
+    for path, digest in sorted(files.items()):
+        if isinstance(got[path], Exception):
+            errors.append(f"{path}: {got[path]}")
+        elif hashlib.sha256(got[path]).hexdigest() != digest:
+            errors.append(f"{path}: sha256 differs from the manifest")
+    return errors
+
+
 def drift_python(doc, published, requirements, deps_version_value, set_version=None):
     """Differences between the inventory, the framework requirements and the Python set manifest."""
     errors = drift(doc, published, python=True, set_version=set_version)
@@ -474,7 +506,8 @@ def main(argv=None):
         ("check", "validate the inventory"), ("flatten", "print the inventory as bash associative arrays"),
         ("readme", "rewrite the dependency table of README.md"), ("sbom", "print a CycloneDX SBOM"),
         ("manifest", "print the manifest.json of a published set"),
-        ("drift", "compare the inventory with the manifests of DEPS_VERSION and PYTHON_DEPS_VERSION"))}
+        ("drift", "compare the inventory with the manifests of DEPS_VERSION and PYTHON_DEPS_VERSION"),
+        ("verify", "check a published set against its local manifest.json"))}
     for command in commands.values():
         command.add_argument("--inventory", default=str(DEFAULT_INVENTORY))
     commands["check"].add_argument("--src", default=str(REPO / "src"))
@@ -501,10 +534,14 @@ def main(argv=None):
                                    help="default: the mirror manifest of src/Makefile's PYTHON_DEPS_VERSION")
     commands["drift"].add_argument("--requirements", default=str(REQUIREMENTS))
     commands["drift"].add_argument("--src", default=str(REPO / "src"))
+    commands["verify"].add_argument("--set", required=True, help="e.g. 5/externals/2")
+    commands["verify"].add_argument("--manifest", required=True, help="the manifest.json that was published")
+    commands["verify"].add_argument("--mirror", default=MIRROR)
     args = parser.parse_args(argv)
 
     try:
-        doc = None if getattr(args, "manifest", None) and args.command == "sbom" else load(args.inventory)
+        doc = None if args.command == "verify" or (getattr(args, "manifest", None) and args.command == "sbom") \
+            else load(args.inventory)
     except (OSError, ValueError) as exc:
         print(f"ERROR: <inventory>: cannot read {args.inventory}: {exc}", file=sys.stderr)
         return 1
@@ -553,6 +590,8 @@ def main(argv=None):
                 python = {"built_against": args.built_against, "requirements": read_requirements(args.requirements)}
             result = manifest(doc, args.deps_version, args.wazuh_commit, args.workflow_run, args.files, python)
             sys.stdout.write(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+        elif args.command == "verify":
+            return _report(verify(args.set, args.manifest, args.mirror))
         elif args.command == "drift":
             externals_version = deps_version(args.src)
             python_version = deps_version(args.src, "PYTHON_DEPS_VERSION")

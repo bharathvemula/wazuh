@@ -884,3 +884,159 @@ def test_fetch_dep_missing_subdir(tmp_path):
 def test_fetch_dep_missing_overlay(tmp_path):
     result, tree = fetch_procps(tmp_path, overlay="absent")
     assert result.returncode != 0 and "cannot copy overlay/absent/" in result.stderr and not tree.exists()
+
+
+PUBLISH = HERE.parent / "publish_set.sh"
+# A stand-in for the AWS CLI: objects live under $FAKE_S3/store, every call is logged.
+FAKE_AWS = r'''#!/bin/bash
+key="" body="" out="" cond=no
+op="$2"; shift 2
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --key) key="$2"; shift 2 ;; --body) body="$2"; shift 2 ;; --bucket) shift 2 ;;
+        --if-none-match) cond=yes; shift 2 ;; help) echo "--if-none-match"; exit 0 ;;
+        *) out="$1"; shift ;;
+    esac
+done
+echo "${op} ${key} cond=${cond} token=${AWS_SESSION_TOKEN:-unset}" >> "${FAKE_S3}/calls.log"
+obj="${FAKE_S3}/store/${key}"
+case "${op}" in
+    head-object) [ -f "${obj}" ] || exit 254 ;;
+    put-object)
+        if [ -f "${obj}" ]; then echo "An error occurred (PreconditionFailed)" >&2; exit 254; fi
+        mkdir -p "$(dirname "${obj}")" && cp "${body}" "${obj}" ;;
+    get-object) cp "${obj}" "${out}" ;;
+esac
+'''
+
+
+def publish_tarball(tmp_path, deps_version="5/externals/9", extra_listed=False):
+    files = {"libraries/sources/zlib.tar.gz": b"zlib src\n", "libraries/linux/amd64/zlib.tar.gz": b"zlib bin\n"}
+    listed = {k: hashlib.sha256(v).hexdigest() for k, v in files.items()}
+    if extra_listed:
+        listed["libraries/sources/curl.tar.gz"] = SHA
+    manifest = json.dumps({"schema": 1, "deps_version": deps_version, "files": listed}).encode()
+    archive = tmp_path / "set.tar.gz"
+    with tarfile.open(archive, "w:gz") as t:
+        for name, content in {**files, "manifest.json": manifest}.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            t.addfile(info, io.BytesIO(content))
+    return archive, files, manifest
+
+
+def publish(tmp_path, archive, set_name="5/externals/9", store=None, token=None):
+    fake = tmp_path / "fake"
+    (fake / "bin").mkdir(parents=True, exist_ok=True)
+    (fake / "bin" / "aws").write_text(FAKE_AWS)
+    (fake / "bin" / "aws").chmod(0o755)
+    for key, content in (store or {}).items():
+        (fake / "store" / key).parent.mkdir(parents=True, exist_ok=True)
+        (fake / "store" / key).write_bytes(content)
+    env = {"PATH": f"{fake / 'bin'}:{os.environ['PATH']}", "FAKE_S3": str(fake),
+           "FEED_AWS_KEY_ID": "id", "FEED_AWS_SECRET_ACCESS_KEY": "secret"}
+    if token:
+        env["AWS_SESSION_TOKEN"] = token
+    result = subprocess.run(["bash", str(PUBLISH), str(archive), "bucket", set_name], capture_output=True,
+                            text=True, env=env, timeout=60)
+    log = (fake / "calls.log").read_text().splitlines() if (fake / "calls.log").exists() else []
+    return result, [line.split() for line in log], fake / "store"
+
+
+needs_publish = pytest.mark.skipif(not (shutil.which("bash") and shutil.which("sha256sum")), reason="needs bash")
+
+
+@needs_publish
+def test_publish_set_order(tmp_path):
+    archive, files, manifest = publish_tarball(tmp_path)
+    result, calls, store = publish(tmp_path, archive)
+    assert result.returncode == 0, result.stderr
+    puts = [c for c in calls if c[0] == "put-object"]
+    assert [c[1] for c in puts] == ["deps/5/externals/9/libraries/linux/amd64/zlib.tar.gz",
+                                    "deps/5/externals/9/libraries/sources/zlib.tar.gz",
+                                    "deps/5/externals/9/manifest.json"]
+    assert all(c[2] == "cond=yes" for c in puts)
+    assert (store / "deps/5/externals/9/manifest.json").read_bytes() == manifest
+
+
+@needs_publish
+def test_publish_set_resumes_identical(tmp_path):
+    archive, files, _ = publish_tarball(tmp_path)
+    key = "deps/5/externals/9/libraries/sources/zlib.tar.gz"
+    result, calls, store = publish(tmp_path, archive, store={key: files["libraries/sources/zlib.tar.gz"]})
+    assert result.returncode == 0, result.stderr
+    assert ["get-object", key, "cond=no", "token=unset"] in calls
+    assert (store / "deps/5/externals/9/manifest.json").exists()
+
+
+@needs_publish
+def test_publish_set_rejects_different(tmp_path):
+    archive, _, _ = publish_tarball(tmp_path)
+    key = "deps/5/externals/9/libraries/sources/zlib.tar.gz"
+    result, _, store = publish(tmp_path, archive, store={key: b"other\n"})
+    assert result.returncode != 0 and "already exists with other content" in result.stderr
+    assert not (store / "deps/5/externals/9/manifest.json").exists()
+
+
+@needs_publish
+def test_publish_set_published(tmp_path):
+    archive, _, _ = publish_tarball(tmp_path)
+    result, calls, _ = publish(tmp_path, archive, store={"deps/5/externals/9/manifest.json": b"{}"})
+    assert result.returncode != 0 and "the set is published" in result.stderr
+    assert not [c for c in calls if c[0] == "put-object"]
+
+
+@needs_publish
+@pytest.mark.parametrize("set_name,deps_version,message", [
+    ("5/externals/0", "5/externals/0", "set must be 5/externals/<n> or 5/python/<n>"),
+    ("99-37702", "99-37702", "set must be 5/externals/<n> or 5/python/<n>"),
+    ("5/externals/9", "5/externals/8", "the manifest describes set '5/externals/8', not '5/externals/9'"),
+])
+def test_publish_set_guards(tmp_path, set_name, deps_version, message):
+    archive, _, _ = publish_tarball(tmp_path, deps_version=deps_version)
+    result, calls, _ = publish(tmp_path, archive, set_name=set_name)
+    assert result.returncode != 0 and message in result.stderr and calls == []
+
+
+@needs_publish
+def test_publish_set_missing_file(tmp_path):
+    archive, _, _ = publish_tarball(tmp_path, extra_listed=True)
+    result, _, store = publish(tmp_path, archive)
+    assert result.returncode != 0 and "the manifest lists 3" in result.stderr
+    assert not (store / "deps/5/externals/9/manifest.json").exists()
+
+
+@needs_publish
+def test_publish_set_drops_oidc_token(tmp_path):
+    archive, _, _ = publish_tarball(tmp_path)
+    result, calls, _ = publish(tmp_path, archive, token="oidc")
+    assert result.returncode == 0, result.stderr
+    assert calls and all(c[-1] == "token=unset" for c in calls)
+
+
+def mirror(tmp_path, set_name="5/externals/9"):
+    files = {"libraries/sources/zlib.tar.gz": b"zlib src\n"}
+    manifest = json.dumps({"deps_version": set_name,
+                           "files": {k: hashlib.sha256(v).hexdigest() for k, v in files.items()}}).encode()
+    root = tmp_path / "mirror" / set_name
+    for name, content in {**files, "manifest.json": manifest}.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(content)
+    local = tmp_path / "manifest.json"
+    local.write_bytes(manifest)
+    return root, local, (tmp_path / "mirror").as_uri()
+
+
+def test_verify_published_set(tmp_path):
+    root, local, url = mirror(tmp_path)
+    assert deps.verify("5/externals/9", local, url) == []
+    (root / "libraries/sources/zlib.tar.gz").write_bytes(b"tampered\n")
+    assert deps.verify("5/externals/9", local, url) == ["libraries/sources/zlib.tar.gz: sha256 differs from the manifest"]
+
+
+def test_verify_manifest_differs(tmp_path):
+    root, local, url = mirror(tmp_path)
+    (root / "manifest.json").write_bytes(b"{}")
+    assert deps.verify("5/externals/9", local, url)[0].startswith("<manifest>:")
+    result = run("verify", "--set", "5/externals/9", "--manifest", str(local), "--mirror", url)
+    assert result.returncode == 1 and "differs from" in result.stderr
